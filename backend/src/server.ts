@@ -3,6 +3,7 @@ import cors from 'cors';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import mongoose from 'mongoose';
 
 import { schemesRouter } from './routes/schemes.js';
 import { eligibilityRouter } from './routes/eligibility.js';
@@ -13,6 +14,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 const port = Number(process.env.PORT || 3000);
+const connectDB = async () => {
+  try {
+    const mongoUrl = process.env.MONGODB_URL || '';
+    if (!mongoUrl) {
+      throw new Error('MONGODB_URL is not defined in environment variables.');
+    }
+    const dbName = process.env.MONGODB_DB_NAME;
+    await mongoose.connect(mongoUrl, dbName ? { dbName } : {});
+    console.log(`Connected to MongoDB database: ${mongoose.connection.name}`);
+  } catch (error) {
+    console.error('Error connecting to MongoDB:', error);
+    process.exit(1);
+  }
+};
+
 const otpStore = new Map<string, { otp: string; expiresAt: number }>();
 
 const normalizeMobile = (value: string) => value.replace(/\D/g, '').slice(-10);
@@ -183,7 +199,8 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   console.error(err);
   res.status(500).json({ error: 'Internal server error' });
 });
-
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Bharat Benefits Navigator backend running on http://localhost:${port}`);
+connectDB().then(() => {
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`Bharat Benefits Navigator backend running on http://localhost:${port}`);
+  });
 });

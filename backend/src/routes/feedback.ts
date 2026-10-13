@@ -1,41 +1,10 @@
 
 import { Router } from 'express';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import Feedback from '../models/feedback.js';
 
 const router = Router();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const DATA_DIR = path.resolve(__dirname, '../../data');
-const FEEDBACK_FILE = path.join(DATA_DIR, 'feedback.json');
-
-interface FeedbackEntry {
-  id: string;
-  user_id: string;
-  name: string;
-  email: string;
-  rating: number;
-  category: string;
-  experience: string;
-  feedback: string;
-  improvements: string[];
-  created_at: string;
-}
-
-const ensureFeedbackFile = () => {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-
-  if (!fs.existsSync(FEEDBACK_FILE)) {
-    fs.writeFileSync(FEEDBACK_FILE, '[]', 'utf-8');
-  }
-};
-
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const {
       user_id = 'guest_user',
@@ -48,7 +17,16 @@ router.post('/', (req, res) => {
       improvements = []
     } = req.body || {};
 
-    if (!rating || rating < 1 || rating > 5) {
+    const numericRating = Number(rating);
+
+    if (
+      rating === undefined ||
+      rating === null ||
+      rating === '' ||
+      !Number.isFinite(numericRating) ||
+      numericRating < 1 ||
+      numericRating > 5
+    ) {
       return res.status(400).json({
         error: 'Rating must be between 1 and 5.'
       });
@@ -60,22 +38,12 @@ router.post('/', (req, res) => {
       });
     }
 
-    ensureFeedbackFile();
-
-    const existingData = fs.readFileSync(
-      FEEDBACK_FILE,
-      'utf-8'
-    );
-
-    const feedbackEntries: FeedbackEntry[] =
-      JSON.parse(existingData || '[]');
-
-    const newFeedback: FeedbackEntry = {
-      id: `feedback_${Date.now()}`,
+    const newFeedback = await Feedback.create({
+      id: `feedback_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       user_id: String(user_id),
       name: String(name),
       email: String(email),
-      rating: Number(rating),
+      rating: numericRating,
       category: String(category),
       experience: String(experience),
       feedback: String(feedback).trim(),
@@ -83,22 +51,13 @@ router.post('/', (req, res) => {
         ? improvements.map(String)
         : [],
       created_at: new Date().toISOString()
-    };
-
-    feedbackEntries.unshift(newFeedback);
-
-    fs.writeFileSync(
-      FEEDBACK_FILE,
-      JSON.stringify(feedbackEntries, null, 2),
-      'utf-8'
-    );
+    });
 
     return res.status(201).json({
       ok: true,
       message: 'Feedback submitted successfully.',
       feedback: newFeedback
     });
-
   } catch (error) {
     console.error('Feedback submission failed:', error);
 
@@ -108,19 +67,15 @@ router.post('/', (req, res) => {
   }
 });
 
-router.get('/', (_req, res) => {
+router.get('/', async (_req, res) => {
   try {
-    ensureFeedbackFile();
+    const feedbackEntries = await Feedback.find()
+      .sort({ created_at: -1 })
+      .lean();
 
-    const data = fs.readFileSync(
-      FEEDBACK_FILE,
-      'utf-8'
-    );
-
-    return res.json(JSON.parse(data || '[]'));
-
+    return res.json(feedbackEntries);
   } catch (error) {
-    console.error('Unable to read feedback:', error);
+    console.error('Unable to load feedback:', error);
 
     return res.status(500).json({
       error: 'Unable to load feedback.'
